@@ -392,3 +392,5 @@ h1{margin:0;font-size:30px;line-height:1.05}
   .view-root { padding-left: 28px; padding-right: 28px; }
   .bottom-nav { max-width: 1180px; left: 50%; transform: translateX(-50%); }
 }
+
+@media (min-width:1000px){.bottom-nav{left:0;right:auto;transform:none;max-width:none}}
