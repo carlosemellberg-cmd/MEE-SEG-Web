@@ -305,8 +305,12 @@ class FileSyncManager {
   async shareBlobWeb(blob, fileName, title, text = "Archivo del Comité de Seguridad MEE") {
     const file = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
     if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-      await navigator.share({ title, text, files: [file] });
-      return { shared: true, fileName };
+      try {
+        await navigator.share({ title, text, files: [file] });
+        return { shared: true, fileName };
+      } catch (error) {
+        console.warn("No se pudo compartir; se descargara el archivo.", error);
+      }
     }
     this.download(blob, fileName, blob.type || "application/octet-stream");
     return { shared: false, downloaded: true, fileName };
