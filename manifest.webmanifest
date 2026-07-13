@@ -1,0 +1,22 @@
+{
+  "name": "Comité de Seguridad MEE",
+  "short_name": "MEE SEG",
+  "description": "Gestión web local del Comité de Seguridad MEE",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#18191c",
+  "theme_color": "#18191c",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

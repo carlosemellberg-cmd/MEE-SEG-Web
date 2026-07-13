@@ -1,0 +1,15 @@
+MEE SEG WEB v1.0.0 — PUBLICACIÓN
+
+1. Descomprimir este ZIP en una carpeta nueva.
+2. Crear un repositorio público separado llamado MEE-SEG-Web.
+3. Subir todo el contenido de esta carpeta a la raíz del repositorio.
+4. Habilitar GitHub Pages con build_type workflow.
+5. Ejecutar el workflow "Publicar MEE SEG Web".
+6. Abrir el enlace publicado.
+7. Cargar MEE_DATOS_COMITE_MASTER.json.
+
+No subir al repositorio:
+- MEE_DATOS_COMITE_MASTER.json
+- MEE_SUBMISSION_*.json
+- correos exportados
+- claves o contraseñas

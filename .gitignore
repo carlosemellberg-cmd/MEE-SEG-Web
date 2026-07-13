@@ -1,0 +1,10 @@
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+.env
+MEE_DATOS_COMITE_MASTER*.json
+MEE_SUBMISSION_*.json
+MEE_RECOVERY_*.json

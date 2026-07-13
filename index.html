@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#18191c">
+  <meta name="description" content="Gestión web del Comité de Seguridad MEE">
+  <title>Comité de Seguridad MEE</title>
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <section id="login-view" class="login-view">
+      <div class="login-card">
+        <div class="logo-card">
+          <img src="assets/logo-loma-negra.png" alt="Loma Negra">
+        </div>
+        <p class="eyebrow">MANTENIMIENTO ELÉCTRICO / ELECTRÓNICO</p>
+        <h1>Comité de Seguridad MEE</h1>
+        <p class="login-copy">Seguimiento colaborativo de tareas, pendientes, aportes y documentos.</p>
+        <div class="field login-user-field">
+          <label for="local-user-select">Usuario que va a registrar los cambios</label>
+          <select id="local-user-select" aria-label="Seleccionar usuario local"></select>
+        </div>
+        <button id="btn-load-master-login" class="btn btn-primary" type="button">Cargar archivo maestro</button>
+        <p id="login-master-status" class="connection-note">La web no contiene datos corporativos. Cargá MEE_DATOS_COMITE_MASTER.json para comenzar.</p>
+        <button id="btn-demo" class="btn btn-primary" type="button" disabled>
+          <span class="btn-icon" aria-hidden="true">↗</span>
+          Ingresar
+        </button>
+        <button id="btn-microsoft" class="btn btn-secondary" type="button">Acceso Microsoft no requerido</button>
+        <p class="connection-note">Los datos se guardan únicamente en este navegador. GitHub Pages no recibe ni almacena el archivo maestro.</p>
+      </div>
+    </section>
+
+    <section id="main-shell" class="main-shell" hidden>
+      <header class="topbar">
+        <button id="btn-back" class="icon-btn" type="button" aria-label="Volver" hidden>←</button>
+        <div class="topbar-brand">
+          <img src="assets/logo-loma-negra.png" alt="">
+          <div>
+            <strong>Comité de Seguridad MEE</strong>
+            <small id="topbar-subtitle">Inicio</small>
+          </div>
+        </div>
+        <button id="btn-profile" class="avatar-btn" type="button" aria-label="Perfil">CM</button>
+      </header>
+
+      <main id="view-root" class="view-root"></main>
+
+      <nav class="bottom-nav" aria-label="Navegación principal">
+        <button data-route="home" class="nav-item active" type="button">
+          <span>⌂</span><small>Inicio</small>
+        </button>
+        <button data-route="tasks" class="nav-item" type="button">
+          <span>☷</span><small>Tareas</small>
+        </button>
+        <button data-route="pending" class="nav-item" type="button">
+          <span>✓</span><small>Pendientes</small>
+        </button>
+        <button data-route="documents" class="nav-item" type="button">
+          <span>▤</span><small>Documentos</small>
+        </button>
+        <button data-route="profile" class="nav-item" type="button">
+          <span>●</span><small>Perfil</small>
+        </button>
+      </nav>
+    </section>
+  </div>
+
+  <dialog id="modal" class="app-modal">
+    <form method="dialog" class="modal-panel">
+      <div id="modal-content"></div>
+      <button class="btn btn-secondary modal-close" value="cancel">Cerrar</button>
+    </form>
+  </dialog>
+
+  <input id="file-master-input" type="file" accept=".json,application/json" hidden>
+  <input id="file-changes-input" type="file" accept=".json,application/json" multiple hidden>
+  <input id="file-confirm-input" type="file" accept=".json,application/json" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="data-adapter.js"></script>
+  <script src="mee-bridge.js"></script>
+  <script src="file-sync.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

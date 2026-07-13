@@ -1,0 +1,14 @@
+MEE SEG WEB v1.0.0 — RESULTADO DE PRUEBAS
+
+CONFIRMADO
+- JavaScript válido: app.js, data-adapter.js, file-sync.js y mee-bridge.js.
+- Proyecto sin personas, tareas, correos corporativos, maestro ni submissions embebidos.
+- Carga obligatoria de MEE_DATOS_COMITE_MASTER.json antes del ingreso.
+- Creación NORMAL: base v4 -> objetivo v5 -> UUID nuevo.
+- Reenvío del mismo pending conserva UUID y versión.
+- Confirmación con maestro v5 + ACK correcto adopta baseline, limpia pending y deja dirtyCount=0.
+- PWA: manifest y service worker incluidos.
+- GitHub Pages: workflow de publicación incluido.
+
+LIMITACIÓN
+- Outlook web/navegador no permite adjuntar silenciosamente el JSON. La web descarga o comparte el submission y abre el cliente de correo; el usuario debe verificar el adjunto antes de enviar.
