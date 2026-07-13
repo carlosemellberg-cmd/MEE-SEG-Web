@@ -216,7 +216,7 @@ class FileSyncManager {
   clearWebPending() { localStorage.removeItem(this.webPendingKey); }
   getSyncDestinationEmail() {
     const nat = this.native();
-    return nat ? (nat.getSyncDestinationEmail?.() || "") : (localStorage.getItem(this.webEmailKey) || "");
+    return nat ? (nat.getSyncDestinationEmail?.() || "") : (localStorage.getItem(this.webEmailKey) || this.config.syncDestinationEmail || "");
   }
   setSyncDestinationEmail(value) {
     const email = String(value || "").trim();

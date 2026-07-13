@@ -4,6 +4,7 @@ window.APP_CONFIG = {
   connectionMode: "file",
   platform: "web",
   publicMode: true,
+  syncDestinationEmail: "cemellberg@lomanegra.com",
   refreshSeconds: 30,
   microsoftAuth: null,
   sharePointMasterFileName: "MEE_DATOS_COMITE_MASTER.json",
