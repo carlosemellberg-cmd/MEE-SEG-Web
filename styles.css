@@ -236,9 +236,9 @@ h1{margin:0;font-size:30px;line-height:1.05}
   .list-main small{font-size:12px}
   .action-row{max-width:720px;gap:12px;margin-top:16px}
   .btn{min-height:51px;padding:14px 20px}
-  #new-task-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
-  #new-task-form .form-card{margin:0;padding:21px}
-  #new-task-form .form-actions{grid-column:1/-1;max-width:720px}
+  #new-task-form{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:stretch}
+  #new-task-form .form-card{margin:0;padding:21px;width:100%;min-width:0}
+  #new-task-form .form-actions{grid-column:auto;max-width:none;width:100%}
   .field label{font-size:13px}
   .field input,.field textarea,.field select{padding:14px;font-size:14px}
   .field textarea{min-height:125px}
