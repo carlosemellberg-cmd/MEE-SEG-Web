@@ -1,0 +1,16 @@
+PRUEBAS MEE SEG WEB v1.10.1
+
+1. Abrir la web con Ctrl+F5.
+2. Confirmar que el login no muestre usuarios antes de cargar el maestro.
+3. Cargar MEE_DATOS_COMITE_MASTER.json.
+4. Entrar como administrador y comprobar:
+   - Apuntes rápidos.
+   - Guardado automático.
+   - Traer desde apunte en Nueva tarea.
+   - Modificar y eliminar tareas.
+5. Entrar como supervisor/coordinador/líder y comprobar edición/eliminación.
+6. Entrar como integrante u operador y comprobar solo lectura.
+7. Preparar un submission.
+8. Confirmar que descarga/compartir abre Outlook con el correo predeterminado.
+9. En Actualizar estado, seleccionar el maestro actualizado y verificar el ACK.
+10. Probar también desde Chrome de la tablet.

@@ -125,7 +125,7 @@ h1{margin:0;font-size:30px;line-height:1.05}
 .field textarea{min-height:110px;resize:vertical}
 .form-actions{display:flex;gap:10px}
 .form-actions .btn{flex:1}
-.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;height:calc(68px + var(--safe-bottom));padding:8px 8px var(--safe-bottom);display:grid;grid-template-columns:repeat(5,1fr);background:rgba(21,22,25,.96);backdrop-filter:blur(15px);border-top:1px solid var(--border)}
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;height:calc(68px + var(--safe-bottom));padding:8px 8px var(--safe-bottom);display:grid;grid-template-columns:repeat(6,1fr);background:rgba(21,22,25,.96);backdrop-filter:blur(15px);border-top:1px solid var(--border)}
 .nav-item{border:0;background:transparent;color:#858a92;border-radius:11px;padding:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
 .nav-item span{font-size:19px}
 .nav-item small{font-size:9px;font-weight:800}
@@ -329,7 +329,7 @@ h1{margin:0;font-size:30px;line-height:1.05}
 .sync-action span{display:block;font-size:25px;margin-bottom:12px}
 .sync-action strong{display:block;font-size:14px;line-height:1.3}
 .sync-action small{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-top:7px}
-@media(min-width:1100px){.quick-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media(min-width:1100px){.quick-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
 @media(max-width:850px){.sync-status-grid{grid-template-columns:1fr 1fr}.sync-action-grid{grid-template-columns:1fr}}
 @media(max-width:520px){.sync-status-grid{grid-template-columns:1fr}}
 
@@ -384,13 +384,36 @@ h1{margin:0;font-size:30px;line-height:1.05}
   .master-secondary-btn{grid-column:auto}
 }
 
-/* Ajustes versión web pública */
-#btn-demo:disabled { opacity: .45; cursor: not-allowed; }
-#login-master-status { min-height: 42px; }
-@media (min-width: 900px) {
-  .main-shell { max-width: 1180px; margin: 0 auto; box-shadow: 0 0 0 1px rgba(255,255,255,.04); }
-  .view-root { padding-left: 28px; padding-right: 28px; }
-  .bottom-nav { max-width: 1180px; left: 50%; transform: translateX(-50%); }
+
+/* MEE SEG v1.10.1 — apuntes rápidos y actualización de estado */
+.notes-compose{display:grid;gap:12px}
+.notes-compose textarea{min-height:180px}
+.autosave-line{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}
+.autosave-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#5dbb63;margin-right:6px}
+.note-list{display:grid;gap:12px}
+.note-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:15px;box-shadow:var(--shadow)}
+.note-card.converted{opacity:.78}
+.note-card-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}
+.note-card-head strong{font-size:14px}
+.note-card p{white-space:pre-wrap;line-height:1.45;margin:0 0 12px}
+.note-meta{display:flex;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:11px}
+.note-status{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;font-size:10px;font-weight:900;letter-spacing:.04em;background:var(--orange-soft);color:var(--orange-2)}
+.note-status.converted{background:rgba(93,187,99,.14);color:#79d27f}
+.note-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.note-import-card{border-color:rgba(232,117,36,.42);background:linear-gradient(180deg,rgba(232,117,36,.08),var(--surface))}
+.note-preview{white-space:pre-wrap;background:#151619;border:1px dashed var(--border);border-radius:11px;padding:12px;min-height:56px;color:var(--muted)}
+.sync-refresh-note{font-size:12px;color:var(--muted);margin-top:8px}
+.btn-refreshing{opacity:.7;pointer-events:none}
+@media(max-width:430px){
+  .bottom-nav{padding-left:3px;padding-right:3px}
+  .nav-item{padding:3px 1px}
+  .nav-item small{font-size:8px}
 }
 
-@media (min-width:1000px){.bottom-nav{left:0;right:auto;transform:none;max-width:none}}
+
+/* Ajustes exclusivos de la versión web pública v1.10.1 */
+#btn-demo:disabled{opacity:.45;cursor:not-allowed}
+#login-master-status{min-height:42px}
+@media (min-width:1000px){
+  .bottom-nav{left:0;right:auto;transform:none;max-width:none}
+}

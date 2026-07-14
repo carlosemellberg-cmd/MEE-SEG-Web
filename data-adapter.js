@@ -53,6 +53,19 @@ class DataAdapter {
     store.people = Array.isArray(store.people) ? store.people : [];
     store.tasks = Array.isArray(store.tasks) ? store.tasks : [];
     store.currentUser = store.currentUser || window.DEMO_DATA.currentUser;
+    const currentPerson = (store.people || []).find(person => person.email === store.currentUser?.email);
+    if (currentPerson) {
+      const normalizedRole = this.roleForPerson(currentPerson);
+      store.currentUser = {
+        ...store.currentUser,
+        name: currentPerson.name,
+        email: currentPerson.email,
+        cargo: currentPerson.cargo,
+        group: currentPerson.group,
+        role: normalizedRole.role,
+        roleLabel: normalizedRole.roleLabel
+      };
+    }
     store.syncMeta = store.syncMeta || {};
     store.syncMeta.schemaVersion = "1.1";
     store.syncMeta.masterId = store.syncMeta.masterId || this.createId("MASTER");
@@ -176,10 +189,20 @@ class DataAdapter {
   roleForPerson(person) {
     const cargo = String(person?.cargo || "").toLowerCase();
     if (cargo.includes("administrador")) return { role: "ADMINISTRADOR", roleLabel: "Administrador" };
-    if (["supervisor", "analista", "coordinador", "líder", "lider"].some(value => cargo.includes(value))) {
+    if (["supervisor", "coordinador", "líder", "lider", "jefe"].some(value => cargo.includes(value))) {
       return { role: "JEFE", roleLabel: "Jefe" };
     }
     return { role: "OPERADOR", roleLabel: "Operador" };
+  }
+
+  canManageStore(store) {
+    return ["ADMINISTRADOR", "JEFE"].includes(store?.currentUser?.role);
+  }
+
+  assertCanManage(store, action = "modificar datos") {
+    if (!this.canManageStore(store)) {
+      throw new Error(`El rol Operador es de solo lectura y no puede ${action}.`);
+    }
   }
 
   async setCurrentUser(email) {
@@ -212,6 +235,7 @@ class DataAdapter {
 
   async createTask(payload) {
     const store = this.readStore();
+    this.assertCanManage(store, "crear tareas");
     const maxNumber = (store.tasks || []).reduce((max, item) => {
       const match = String(item.code || "").match(/(\d+)$/);
       return Math.max(max, match ? Number(match[1]) : 0);
@@ -249,6 +273,7 @@ class DataAdapter {
       throw new Error('Campo de tarea no permitido.');
     }
     const store = this.readStore();
+    this.assertCanManage(store, "modificar tareas");
     const task = store.tasks.find(t => t.code === code);
     if (!task) throw new Error('Tarea no encontrada.');
     const before = task[field] || '';
@@ -274,41 +299,41 @@ class DataAdapter {
   }
 
   async addParticipant(code,email) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code); task.participants=task.participants||[];
+    const store=this.readStore();this.assertCanManage(store,"modificar participantes");const task=store.tasks.find(t=>t.code===code); task.participants=task.participants||[];
     if(!task.participants.includes(email)) task.participants.push(email);
     task.history.unshift({text:"Agregó un participante general",by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
   }
 
   async removeParticipant(code,email) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code); task.participants=(task.participants||[]).filter(x=>x!==email);
+    const store=this.readStore();this.assertCanManage(store,"modificar participantes");const task=store.tasks.find(t=>t.code===code); task.participants=(task.participants||[]).filter(x=>x!==email);
     task.history.unshift({text:"Eliminó un participante general",by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
   }
 
   async addWorkItem(code,payload) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code);task.workItems=task.workItems||[];
+    const store=this.readStore();this.assertCanManage(store,"crear tareas por sector");const task=store.tasks.find(t=>t.code===code);task.workItems=task.workItems||[];
     const item={id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),title:payload.title,sector:payload.sector,description:payload.description||"",responsibleEmail:payload.responsibleEmail,participantEmails:payload.participantEmails||[payload.responsibleEmail],progress:0,status:"PLANIFICADA",dueDate:payload.dueDate||"",updates:[]};
     task.workItems.push(item);this.recalculateTask(task);task.history.unshift({text:`Creó la tarea por sector: ${item.title}`,by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
   }
 
   async editWorkItem(code,id,payload) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);if(!item)return task;
+    const store=this.readStore();this.assertCanManage(store,"modificar tareas por sector");const task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);if(!item)return task;
     Object.assign(item,{title:payload.title,sector:payload.sector,description:payload.description||"",responsibleEmail:payload.responsibleEmail,participantEmails:payload.participantEmails||[],dueDate:payload.dueDate||""});
     task.history.unshift({text:`Editó la tarea por sector: ${item.title}`,by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
   }
 
   async deleteWorkItem(code,id) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);task.workItems=(task.workItems||[]).filter(w=>w.id!==id);this.recalculateTask(task);
+    const store=this.readStore();this.assertCanManage(store,"eliminar tareas por sector");const task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);task.workItems=(task.workItems||[]).filter(w=>w.id!==id);this.recalculateTask(task);
     task.history.unshift({text:`Eliminó la tarea por sector: ${item?.title||id}`,by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
   }
 
   async setWorkItemParticipants(code,id,responsibleEmail,participantEmails) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);if(!item)return task;
+    const store=this.readStore();this.assertCanManage(store,"modificar participantes");const task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);if(!item)return task;
     item.responsibleEmail=responsibleEmail;item.participantEmails=[...new Set(participantEmails||[])];
     task.history.unshift({text:`Actualizó participantes de: ${item.title}`,by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
   }
 
   async addWorkProgress(code,id,progress,comment) {
-    const store=this.readStore(),task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);if(!item)return task;
+    const store=this.readStore();this.assertCanManage(store,"registrar avances");const task=store.tasks.find(t=>t.code===code),item=(task.workItems||[]).find(w=>w.id===id);if(!item)return task;
     item.progress=progress;item.status=progress>=100?"COMPLETADA":progress>0?"EN_EJECUCION":"PLANIFICADA";item.updates=item.updates||[];
     item.updates.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),progress,comment,authorEmail:store.currentUser.email,at:new Date().toISOString()});
     this.recalculateTask(task);task.history.unshift({text:`Informó avance ${progress}% en: ${item.title}`,by:store.currentUser.name,at:new Date().toISOString()});this.writeStore(store);return task;
@@ -316,6 +341,7 @@ class DataAdapter {
 
   async addContribution(code, text, type = "PROPUESTA") {
     const store = this.readStore();
+    this.assertCanManage(store, "agregar aportes");
     const task = store.tasks.find(t => t.code === code);
     task.contributions.push({
       id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
@@ -332,6 +358,7 @@ class DataAdapter {
 
   async addPending(code, description) {
     const store = this.readStore();
+    this.assertCanManage(store, "agregar pendientes");
     const task = store.tasks.find(t => t.code === code);
     task.pending.push({
       id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
@@ -347,6 +374,7 @@ class DataAdapter {
 
   async editPending(code, pendingId, description) {
     const store = this.readStore();
+    this.assertCanManage(store, "modificar pendientes");
     const task = store.tasks.find(t => t.code === code);
     const item = task.pending.find(p => p.id === pendingId);
     if (item) {
@@ -360,7 +388,7 @@ class DataAdapter {
 
   async deletePending(code, pendingId) {
     const store = this.readStore();
-    if (store.currentUser?.role !== "ADMINISTRADOR") throw new Error("Solo el administrador puede eliminar pendientes.");
+    this.assertCanManage(store, "eliminar pendientes");
     const task = store.tasks.find(t => t.code === code);
     task.pending = task.pending.filter(p => p.id !== pendingId);
     task.history.unshift({ text: "Eliminó un pendiente", by: store.currentUser.name, at: new Date().toISOString() });
@@ -370,6 +398,7 @@ class DataAdapter {
 
   async togglePending(code, pendingId) {
     const store = this.readStore();
+    this.assertCanManage(store, "modificar pendientes");
     const task = store.tasks.find(t => t.code === code);
     const item = task.pending.find(p => p.id === pendingId);
     if (item) {
@@ -383,7 +412,7 @@ class DataAdapter {
 
   async deleteTask(code) {
     const store = this.readStore();
-    if (store.currentUser?.role !== "ADMINISTRADOR") throw new Error("Solo el administrador puede eliminar tareas.");
+    this.assertCanManage(store, "eliminar tareas");
     const task = (store.tasks || []).find(item => item.code === code);
     if (!task) throw new Error("Tarea no encontrada.");
     store.tasks = (store.tasks || []).filter(item => item.code !== code);
@@ -393,6 +422,7 @@ class DataAdapter {
 
   async closeTask(code, result) {
     const store = this.readStore();
+    this.assertCanManage(store, "finalizar tareas");
     const task = store.tasks.find(t => t.code === code);
     task.status = "FINALIZADA";
     task.statusLabel = "Finalizada";

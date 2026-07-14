@@ -52,6 +52,11 @@ const app = {
   taskTab: "summary",
   filter: "TODAS",
   pendingSubmission: null,
+  notes: null,
+  selectedNoteIdForTask: "",
+  noteDraftTimer: null,
+  syncRefreshTimer: null,
+  syncRefreshRunning: false,
 
   async init() {
     this.adapter = new DataAdapter(window.APP_CONFIG);
@@ -59,11 +64,14 @@ const app = {
     this.people = await this.adapter.getPeople();
     this.fileSync = new FileSyncManager(this.adapter, window.APP_CONFIG);
     await this.fileSync.initialize();
+    this.notes = new QuickNotesStore();
     this.populateLocalUserSelect();
     this.updateLoginState();
     this.bindStaticEvents();
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch(console.warn));
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./service-worker.js").catch(console.warn);
+      });
     }
   },
 
@@ -109,7 +117,9 @@ const app = {
   },
 
   bindStaticEvents() {
-    document.querySelector("#btn-load-master-login").addEventListener("click", () => document.querySelector("#file-master-input").click());
+    document.querySelector("#btn-load-master-login").addEventListener("click", () => {
+      document.querySelector("#file-master-input").click();
+    });
     document.querySelector("#btn-demo").addEventListener("click", async () => {
       try {
         if (!this.people.length) throw new Error("Primero cargá MEE_DATOS_COMITE_MASTER.json.");
@@ -149,7 +159,9 @@ const app = {
           await this.afterFileDataChange();
           return `Sincronización confirmada. Versión ${result.dataVersion}.`;
         }
-        if (result.status === "conflict") throw new Error(result.detail || "Existe un conflicto real con el maestro remoto.");
+        if (result.status === "conflict") {
+          throw new Error(result.detail || "Existe un conflicto real con el maestro remoto.");
+        }
         return result.detail || "El maestro todavía no contiene el ACK esperado.";
       });
     });
@@ -186,10 +198,75 @@ const app = {
     }
   },
 
+  schedulePendingAutoRefresh() {
+    if (this.syncRefreshTimer) {
+      clearTimeout(this.syncRefreshTimer);
+      this.syncRefreshTimer = null;
+    }
+    if (!this.pendingSubmission?.hasPending || !window.MeeNative?.isNative?.()) return;
+
+    this.syncRefreshTimer = setTimeout(() => {
+      this.refreshSyncState({ silent: true });
+    }, 12000);
+  },
+
+  async refreshSyncState(options = {}) {
+    const silent = !!options.silent;
+    if (this.syncRefreshRunning) return null;
+
+    if (!window.MeeNative?.isNative?.()) {
+      if (!this.fileSync.hasPendingSubmission()) return null;
+      if (!silent) document.querySelector("#file-confirm-input")?.click();
+      return null;
+    }
+
+    if (!window.MeeNative?.pendingSubmissionInfo?.()?.hasPending) return null;
+    this.syncRefreshRunning = true;
+    try {
+      const result = await this.fileSync.refreshPendingState({
+        attempts: silent ? 1 : 2,
+        delayMs: silent ? 0 : 1500
+      });
+
+      if (result.confirmed) {
+        await this.afterFileDataChange();
+        this.toast(`Sincronización confirmada. Versión ${result.dataVersion}.`);
+        return result;
+      }
+
+      if (result.status === "conflict") {
+        throw new Error(result.detail || "Existe un conflicto con otra versión del maestro.");
+      }
+
+      if (!silent) {
+        await this.render();
+        this.toast(result.detail || "El ACK todavía no aparece en el maestro.");
+      } else {
+        this.pendingSubmission = (await this.fileSync.getStatus()).pendingSubmission || null;
+        this.schedulePendingAutoRefresh();
+      }
+      return result;
+    } catch (error) {
+      console.error(error);
+      if (!silent) {
+        this.openModal(`<h3>No se pudo actualizar el estado</h3><div class="warning">${this.escapeHtml(error.message || error)}</div>`);
+      } else {
+        this.schedulePendingAutoRefresh();
+      }
+      return null;
+    } finally {
+      this.syncRefreshRunning = false;
+    }
+  },
+
+  handleNativeResume() {
+    if (document.querySelector("#main-shell")?.hidden) return;
+    if (!window.MeeNative?.pendingSubmissionInfo?.()?.hasPending) return;
+    setTimeout(() => this.refreshSyncState({ silent: true }), 1200);
+  },
+
   ensureSyncDestinationEmail() {
-    const nat = window.MeeNative;
-    if (!nat?.isNative?.()) return "";
-    let current = nat.getSyncDestinationEmail?.() || "";
+    let current = this.fileSync.getSyncDestinationEmail() || window.APP_CONFIG.syncDestinationEmail || "";
     while (!current) {
       const entered = prompt(
         "Ingresá el correo corporativo que recibirá los envíos de MEE SEG para Power Automate:",
@@ -201,7 +278,7 @@ const app = {
         alert("Ingresá una dirección de correo válida.");
         continue;
       }
-      if (!nat.setSyncDestinationEmail(value)) {
+      if (!this.fileSync.setSyncDestinationEmail(value)) {
         alert("No se pudo guardar el correo. Revisá el formato.");
         continue;
       }
@@ -254,6 +331,7 @@ const app = {
   async go(route) {
     this.route = route;
     this.selectedTask = null;
+    if (route !== "newTask") this.selectedNoteIdForTask = "";
     await this.render();
   },
 
@@ -316,7 +394,7 @@ const app = {
   },
 
   canUpdateWorkItem(item) {
-    return this.canManage() || item.responsibleEmail === this.user.email || (item.participantEmails || []).includes(this.user.email);
+    return this.canManage();
   },
 
   escapeHtml(value) {
@@ -332,7 +410,7 @@ const app = {
     const back = document.querySelector("#btn-back");
     back.hidden = !this.selectedTask;
     const title = this.selectedTask ? this.selectedTask.code : ({
-      home:"Inicio", tasks:"Tareas", pending:"Pendientes", documents:"Documentos", profile:"Perfil", fileSync:"Centro de archivos", newTask:"Nueva tarea"
+      home:"Inicio", tasks:"Tareas", pending:"Pendientes", notes:"Apuntes", documents:"Documentos", profile:"Perfil", fileSync:"Centro de archivos", newTask:"Nueva tarea"
     }[this.route] || "Inicio");
     document.querySelector("#topbar-subtitle").textContent = title;
 
@@ -346,6 +424,7 @@ const app = {
     else if (this.route === "home") content = await this.renderHome();
     else if (this.route === "tasks") content = await this.renderTasks();
     else if (this.route === "pending") content = await this.renderPending();
+    else if (this.route === "notes") content = this.renderNotes();
     else if (this.route === "documents") content = this.renderDocuments();
     else if (this.route === "profile") content = await this.renderProfile();
     else if (this.route === "fileSync") content = await this.renderFileSync();
@@ -361,6 +440,7 @@ const app = {
     root.innerHTML = content;
     this.bindViewEvents();
     this.applyPendingUiLock();
+    this.schedulePendingAutoRefresh();
   },
 
   async renderHome() {
@@ -368,6 +448,7 @@ const app = {
     const active = tasks.filter(t => t.status !== "FINALIZADA");
     const pending = active.reduce((n,t) => n + t.pending.filter(p => p.status !== "COMPLETADO").length, 0);
     const late = active.filter(t => t.status === "PAUSADA").length;
+    const quickNotes = this.notes?.listPending(this.user).length || 0;
     return `
       <section class="hero">
         <div class="hero-top">
@@ -378,6 +459,7 @@ const app = {
         <div class="kpi-grid">
           <div class="kpi"><strong>${active.length}</strong><small>Tareas activas</small></div>
           <div class="kpi"><strong>${pending}</strong><small>Pendientes</small></div>
+          <div class="kpi"><strong>${quickNotes}</strong><small>Apuntes</small></div>
           <div class="kpi"><strong>${late}</strong><small>Bloqueadas</small></div>
         </div>
         <div class="connection-badge"><span class="dot file-dot"></span>Modo archivo · datos guardados localmente en este teléfono</div>
@@ -385,7 +467,8 @@ const app = {
 
       <div class="section-head"><h3>Acciones rápidas</h3></div>
       <section class="quick-grid">
-        ${this.user.role !== "OPERADOR" ? `<button class="quick-card primary" data-action="new-task"><span class="q-icon">＋</span><strong>Nueva tarea</strong><small>Registrar problema o mejora</small></button>` : ""}
+        ${this.canManage() ? `<button class="quick-card primary" data-action="new-task"><span class="q-icon">＋</span><strong>Nueva tarea</strong><small>Registrar problema o mejora</small></button>` : ""}
+        <button class="quick-card" data-route-action="notes"><span class="q-icon">✎</span><strong>Apunte rápido</strong><small>${this.canManage() ? "Anotar ahora y ordenar después" : "Consultar apuntes guardados"}</small></button>
         <button class="quick-card" data-route-action="tasks"><span class="q-icon">☷</span><strong>Ver tareas</strong><small>Seguimiento del comité</small></button>
         <button class="quick-card" data-route-action="pending"><span class="q-icon">✓</span><strong>Pendientes</strong><small>Acciones abiertas</small></button>
         <button class="quick-card" data-route-action="documents"><span class="q-icon">▤</span><strong>Documentos</strong><small>Archivos y evidencias</small></button>
@@ -421,7 +504,7 @@ const app = {
       <div class="filters">${filters.map(f => `<button class="filter-btn ${this.filter===f?"active":""}" data-filter="${f}">${({
         TODAS:"Todas",EN_ANALISIS:"En análisis",PLANIFICADA:"Planificadas",EN_EJECUCION:"En ejecución",FINALIZADA:"Finalizadas"
       })[f]}</button>`).join("")}</div>
-      ${this.user.role !== "OPERADOR" ? `<button class="btn btn-primary btn-full" data-action="new-task">＋ Nueva tarea</button><div style="height:12px"></div>` : ""}
+      ${this.canManage() ? `<button class="btn btn-primary btn-full" data-action="new-task">＋ Nueva tarea</button><div style="height:12px"></div>` : ""}
       <section id="task-results" class="task-list-grid">
         ${filtered.length ? filtered.map(t => this.taskCard(t)).join("") : `<div class="empty">No hay tareas en este filtro.</div>`}
       </section>
@@ -437,6 +520,61 @@ const app = {
         <h3>${r.description}</h3>
         <p>Responsable: ${r.responsible}</p>
       </article>`).join("") : `<div class="empty">No hay pendientes abiertos.</div>`}`;
+  },
+
+  renderNotes() {
+    const notes = this.notes?.listForUser(this.user) || [];
+    const pending = notes.filter(note => note.status !== "CONVERTIDO");
+    const converted = notes.filter(note => note.status === "CONVERTIDO");
+    const draft = this.notes?.getDraft(this.user) || { text: "", updatedAt: "" };
+    const canEdit = this.canManage();
+
+    const card = note => `<article class="note-card ${note.status === "CONVERTIDO" ? "converted" : ""}">
+      <div class="note-card-head">
+        <div>
+          <strong>${note.status === "CONVERTIDO" ? "Apunte convertido" : "Apunte pendiente"}</strong>
+          <div class="note-meta"><span>${this.date(note.updatedAt || note.createdAt)}</span><span>${this.escapeHtml(note.authorName || this.user.name)}</span></div>
+        </div>
+        <span class="note-status ${note.status === "CONVERTIDO" ? "converted" : ""}">${note.status === "CONVERTIDO" ? "CONVERTIDO" : "PENDIENTE"}</span>
+      </div>
+      <p>${this.escapeHtml(note.text)}</p>
+      ${note.convertedTaskCode ? `<div class="note-meta"><span>Tarea: ${this.escapeHtml(note.convertedTaskCode)}</span></div>` : ""}
+      ${canEdit ? `<div class="note-actions">
+        ${note.status !== "CONVERTIDO" ? `<button class="btn btn-primary" data-action="create-task-from-note" data-note-id="${note.id}">Crear tarea con este apunte</button>` : `<button class="btn btn-secondary" data-action="reopen-note" data-note-id="${note.id}">Volver a pendiente</button>`}
+        <button class="btn btn-secondary" data-action="edit-note" data-note-id="${note.id}">Editar</button>
+        <button class="btn btn-danger" data-action="delete-note" data-note-id="${note.id}">Eliminar</button>
+      </div>` : ""}
+    </article>`;
+
+    return `<h2 class="page-title">Apuntes rápidos</h2>
+      ${canEdit ? `<section class="form-card notes-compose">
+        <div>
+          <h3>Escribí mientras se conversa</h3>
+          <p class="panel-note">El borrador se guarda automáticamente en este dispositivo. Después podés convertirlo en una tarea sin salir de la aplicación.</p>
+        </div>
+        <div class="field">
+          <label>Apunte en curso</label>
+          <textarea id="quick-note-draft" placeholder="Anotá problemas, ideas, decisiones, sectores involucrados o cualquier dato para ordenar después.">${this.escapeHtml(draft.text || "")}</textarea>
+        </div>
+        <div class="autosave-line">
+          <span><span class="autosave-dot"></span><span id="note-autosave-status">${draft.updatedAt ? `Guardado automáticamente ${this.date(draft.updatedAt)}` : "Borrador listo"}</span></span>
+          <span>Solo local</span>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-primary" data-action="save-quick-note">Guardar como apunte pendiente</button>
+          <button class="btn btn-secondary" data-action="clear-note-draft">Limpiar borrador</button>
+        </div>
+      </section>` : `<div class="warning">El rol Operador es de solo lectura. Puede consultar apuntes, pero no crearlos, modificarlos ni eliminarlos.</div>`}
+
+      <div class="section-head"><h3>Pendientes de ordenar</h3><span>${pending.length}</span></div>
+      <section class="note-list">
+        ${pending.length ? pending.map(card).join("") : `<div class="empty">No hay apuntes pendientes.</div>`}
+      </section>
+
+      ${converted.length ? `<div class="section-head"><h3>Convertidos en tarea</h3><span>${converted.length}</span></div>
+      <section class="note-list">${converted.map(card).join("")}</section>` : ""}
+
+      <div class="location-note"><strong>Importante:</strong> los apuntes rápidos quedan guardados únicamente en este dispositivo y no se envían al maestro hasta crear una tarea formal.</div>`;
   },
 
   renderDocuments() {
@@ -470,7 +608,7 @@ const app = {
       <section class="panel">
         <h3>Modo de trabajo</h3>
         <p>Versión ${APP_CONFIG.version}<br>Conexión: modo archivo<br>Cambios locales pendientes de exportar: ${sync.dirtyCount}</p>
-        <div class="action-row"><button class="btn btn-primary" data-route-action="fileSync">Abrir centro de archivos</button><button class="btn btn-secondary" data-action="reset-demo">Borrar datos locales</button></div>
+        <div class="action-row"><button class="btn btn-primary" data-route-action="fileSync">Abrir centro de archivos</button>${this.canManage() ? `<button class="btn btn-secondary" data-action="reset-demo">Restablecer datos iniciales</button>` : ""}</div>
       </section>`;
   },
 
@@ -507,9 +645,10 @@ const app = {
           Archivo: ${this.escapeHtml(pending.fileName || "")}</p>
           <div class="warning">La edición está bloqueada hasta que Power Automate actualice SharePoint y la aplicación confirme el ACK.</div>
           <div class="action-row">
-            <button class="btn btn-primary" data-action="share-pending-outlook">Reenviar por Outlook</button>
-            <button class="btn btn-secondary" data-action="confirm-sync">Confirmar sincronización</button>
+            <button class="btn btn-primary" data-action="refresh-sync-state">Actualizar estado</button>
+            <button class="btn btn-secondary" data-action="share-pending-outlook">Reenviar por Outlook</button>
           </div>
+          <p class="sync-refresh-note">La aplicación vuelve a leer el maestro automáticamente al regresar desde Outlook y mientras este envío siga pendiente.</p>
           <div class="action-row">
             ${sync.hasSubmissionFolder
               ? '<button class="btn btn-primary" data-action="send-pending-to-folder">Enviar automáticamente a carpeta</button>'
@@ -537,12 +676,15 @@ const app = {
           </div>
         </section>
 
-        <div class="location-note"><strong>Flujo seguro:</strong> Android solo lee el maestro. Al guardar, crea un archivo MEE_SUBMISSION nuevo, lo abre en Outlook y mantiene los cambios pendientes. Power Automate actualiza SharePoint. Recién después usás <strong>Confirmar sincronización</strong>.</div>
+        <div class="location-note"><strong>Flujo seguro:</strong> Android solo lee el maestro. Al guardar, crea un archivo MEE_SUBMISSION nuevo, lo abre en Outlook y mantiene los cambios pendientes. Power Automate actualiza SharePoint. La aplicación intenta confirmar automáticamente el ACK; también podés usar <strong>Actualizar estado</strong>.</div>
         ${remembered ? `<div class="location-note"><strong>Diagnóstico:</strong> proveedor ${this.escapeHtml(sync.diagUriAuthority || "sin datos")} · MIME ${this.escapeHtml(sync.diagMimeType || "sin datos")} · última lectura ${sync.diagLastReadSize ? `${this.escapeHtml(String(sync.diagLastReadSize))} bytes (${this.escapeHtml(formatDate(sync.diagLastReadAt))})` : "sin datos"} · estado: ${this.escapeHtml(sync.diagLastWriteResult || "sin operaciones")}</div>` : ""}`;
     }
 
     const pending = sync.pendingSubmission;
-    const pendingId = pending?.submissionId ? `${pending.submissionId.slice(0, 8)}…${pending.submissionId.slice(-4)}` : "";
+    const pendingId = pending?.submissionId
+      ? `${pending.submissionId.slice(0, 8)}…${pending.submissionId.slice(-4)}`
+      : "";
+
     return `<h2 class="page-title">Archivo maestro</h2>
       <section class="sync-status-grid">
         <div class="sync-status-card"><small>Archivo cargado</small><strong>${this.escapeHtml(sync.linkedFileName || "Sin cargar")}</strong></div>
@@ -550,16 +692,22 @@ const app = {
         <div class="sync-status-card"><small>Cambios pendientes</small><strong>${sync.dirtyCount}</strong></div>
         <div class="sync-status-card"><small>Última actualización</small><strong>${this.escapeHtml(formatDate(sync.lastImportedAt))}</strong></div>
       </section>
+
       ${pending ? `<section class="panel">
         <h3>Sincronización pendiente</h3>
         <p>Versión objetivo: <strong>${pending.targetDataVersion}</strong><br>
         Identificador: <strong>${this.escapeHtml(pendingId)}</strong><br>
-        Archivo: <strong>${this.escapeHtml(pending.fileName)}</strong></p>
-        <div class="warning">El archivo se conserva en este navegador hasta confirmar el ACK. Reenviar conserva el mismo UUID.</div>
+        Archivo: <strong>${this.escapeHtml(pending.fileName || "")}</strong></p>
+        <div class="warning">El submission se conserva en este navegador hasta confirmar el ACK. Reenviar mantiene el mismo UUID.</div>
         <div class="action-row">
-          <button class="btn btn-primary" data-action="share-pending-outlook">Descargar/compartir para Outlook</button>
-          <button class="btn btn-secondary" data-action="confirm-sync-picked">Confirmar con maestro actualizado</button>
+          <button class="btn btn-primary" data-action="refresh-sync-state">Actualizar estado</button>
+          <button class="btn btn-secondary" data-action="share-pending-outlook">Descargar y abrir Outlook</button>
         </div>
+        <div class="action-row">
+          <button class="btn btn-secondary" data-action="save-pending-copy">Guardar otra copia</button>
+          <button class="btn btn-secondary" data-action="confirm-sync-picked">Seleccionar maestro actualizado</button>
+        </div>
+        <p class="sync-refresh-note">En la web, Actualizar estado abre el selector para cargar el maestro actualizado descargado de SharePoint.</p>
       </section>` : `<section class="panel sync-workflow">
         <h3>1. Cargar la última base</h3>
         <p>Seleccioná exactamente <strong>MEE_DATOS_COMITE_MASTER.json</strong>.</p>
@@ -567,23 +715,49 @@ const app = {
       </section>
       <section class="panel sync-workflow">
         <h3>2. Preparar el envío</h3>
-        <p>La web genera un <strong>MEE_SUBMISSION</strong>. No sobrescribe el maestro.</p>
+        <p>La web genera un <strong>MEE_SUBMISSION</strong>. No sobrescribe el maestro ni publica datos en GitHub.</p>
         <div class="action-row"><button class="btn btn-primary" data-action="save-master" ${sync.dirtyCount ? "" : "disabled"}>Preparar envío seguro</button></div>
       </section>`}
+
       <section class="panel">
         <h3>Correo de Power Automate</h3>
-        <p><strong>${this.escapeHtml(sync.syncDestinationEmail || "Sin configurar")}</strong></p>
+        <p><strong>${this.escapeHtml(sync.syncDestinationEmail || window.APP_CONFIG.syncDestinationEmail || "Sin configurar")}</strong></p>
         <div class="action-row"><button class="btn btn-secondary" data-action="configure-sync-email">Configurar correo</button></div>
       </section>
-      <div class="location-note"><strong>Versión web pública:</strong> GitHub Pages aloja únicamente el programa. El maestro y los datos quedan en este navegador. Para sincronizar, descargá/compartí el submission, adjuntalo en Outlook y luego confirmá con el maestro actualizado descargado de SharePoint.</div>`;
+
+      <div class="location-note"><strong>Versión web v1.10.1:</strong> los apuntes quedan solo en este navegador hasta convertirlos en tarea. El maestro y los datos corporativos no se alojan en GitHub Pages. El envío por Outlook continúa siendo manual hasta completar el nuevo automatismo.</div>`;
   },
 
   renderNewTask() {
+    const notes = this.notes?.listPending(this.user) || [];
+    const selectedId = notes.some(note => note.id === this.selectedNoteIdForTask)
+      ? this.selectedNoteIdForTask
+      : "";
+    const selectedNote = selectedId ? this.notes.get(this.user, selectedId) : null;
+
     return `<h2 class="page-title">Nueva tarea</h2>
       <form id="new-task-form">
+        <section class="form-card note-import-card">
+          <div>
+            <h3>Traer desde apunte</h3>
+            <p class="panel-note">Elegí un apunte pendiente y cargalo directamente en “Problema o necesidad” sin salir de esta pantalla.</p>
+          </div>
+          <div class="field">
+            <label>Apunte pendiente</label>
+            <select id="note-source-select" name="sourceNoteId">
+              <option value="">No usar apunte</option>
+              ${notes.map(note => `<option value="${note.id}" ${note.id === selectedId ? "selected" : ""}>${this.escapeHtml(note.text.slice(0, 80))}${note.text.length > 80 ? "…" : ""}</option>`).join("")}
+            </select>
+          </div>
+          <div id="note-source-preview" class="note-preview">${selectedNote ? this.escapeHtml(selectedNote.text) : "Seleccioná un apunte para ver el contenido."}</div>
+          <div class="action-row">
+            <button type="button" class="btn btn-primary" data-action="load-note-into-task" ${notes.length ? "" : "disabled"}>Cargar apunte en la tarea</button>
+            <button type="button" class="btn btn-secondary" data-route-action="notes">Abrir apuntes</button>
+          </div>
+        </section>
         <section class="form-card">
           <div class="field"><label>Título *</label><input name="title" required placeholder="Ej.: Acondicionar tomas eléctricas"></div>
-          <div class="field"><label>Problema o necesidad *</label><textarea name="problem" required placeholder="Describí qué se detectó y por qué debe tratarse"></textarea></div>
+          <div class="field"><label>Problema o necesidad *</label><textarea name="problem" required placeholder="Describí qué se detectó y por qué debe tratarse">${selectedNote ? this.escapeHtml(selectedNote.text) : ""}</textarea></div>
           <div class="field"><label>Ubicación</label><input name="location" placeholder="Sala, equipo o sector"></div>
           <div class="field"><label>Tipo</label><select name="type"><option value="SEGURIDAD_ELECTRICA">Seguridad eléctrica</option><option value="MEJORA_TECNICA">Mejora técnica</option><option value="PROCEDIMIENTO">Procedimiento</option><option value="DOCUMENTACION">Documentación</option><option value="OTRO">Otro</option></select></div>
           <div class="field"><label>Prioridad</label><select name="priority"><option value="MEDIA">Media</option><option value="ALTA">Alta</option><option value="CRITICA">Crítica</option><option value="BAJA">Baja</option></select></div>
@@ -619,8 +793,8 @@ const app = {
     <div class="action-row">
       <button class="btn btn-secondary" data-action="minute">Vista previa</button>
       <button class="btn btn-primary" data-action="task-pdf">Descargar minuta PDF</button>
-      ${task.status !== "FINALIZADA" && this.user.role !== "OPERADOR" ? `<button class="btn btn-primary" data-action="close-task">Finalizar</button>` : ""}
-      ${this.isAdministrator() ? `<button class="btn btn-danger" data-action="delete-task">Eliminar tarea</button>` : ""}
+      ${task.status !== "FINALIZADA" && this.canManage() ? `<button class="btn btn-primary" data-action="close-task">Finalizar</button>` : ""}
+      ${this.canManage() ? `<button class="btn btn-danger" data-action="delete-task">Eliminar tarea</button>` : ""}
     </div>
     `;
   },
@@ -628,11 +802,11 @@ const app = {
   renderTaskTab(task) {
     if (this.taskTab === "summary") return `
       <section class="panel editable-panel">
-        <div class="panel-title-row"><h3>Problema detectado</h3>${this.user.role !== "OPERADOR" ? `<button class="panel-edit-btn" data-action="edit-task-text" data-field="problem">Editar problema</button>` : ""}</div>
+        <div class="panel-title-row"><h3>Problema detectado</h3>${this.canManage() ? `<button class="panel-edit-btn" data-action="edit-task-text" data-field="problem">Editar problema</button>` : ""}</div>
         <p>${task.problem}</p>
       </section>
       <section class="panel editable-panel">
-        <div class="panel-title-row"><h3>Propuesta general</h3>${this.user.role !== "OPERADOR" ? `<button class="panel-edit-btn" data-action="edit-task-text" data-field="proposal">Editar propuesta</button>` : ""}</div>
+        <div class="panel-title-row"><h3>Propuesta general</h3>${this.canManage() ? `<button class="panel-edit-btn" data-action="edit-task-text" data-field="proposal">Editar propuesta</button>` : ""}</div>
         <p>${task.proposal || "Sin propuesta general."}</p>
       </section>
       <section class="panel plan-summary">
@@ -643,7 +817,7 @@ const app = {
           <div><strong>${task.progress} %</strong><small>Avance general</small></div>
         </div>
       </section>
-      ${this.user.role !== "OPERADOR" ? `<section class="panel"><h3>¿Querés sumar información sin reemplazar lo anterior?</h3><p class="panel-note">Usá un aporte para agregar una mejora, observación, decisión o avance. El problema original queda conservado.</p><div class="action-row"><button class="btn btn-primary" data-action="add-contribution">Agregar aporte o mejora</button></div></section>` : ""}`;
+      ${this.canManage() ? `<section class="panel"><h3>¿Querés sumar información sin reemplazar lo anterior?</h3><p class="panel-note">Usá un aporte para agregar una mejora, observación, decisión o avance. El problema original queda conservado.</p><div class="action-row"><button class="btn btn-primary" data-action="add-contribution">Agregar aporte o mejora</button></div></section>` : ""}`;
     if (this.taskTab === "actionPlan") return `
       <section class="panel">
         <div class="panel-title-row"><div><h3>Plan de acción</h3><p class="panel-note">La tarea general se divide por sector o frente de trabajo. Cada una tiene responsable, participantes y avances propios.</p></div>${this.canManage() ? `<button class="panel-edit-btn" data-action="add-work-item">＋ Nueva tarea por sector</button>` : ""}</div>
@@ -655,13 +829,13 @@ const app = {
       <section class="panel"><h3>Aportes y mejoras</h3>
         <p class="panel-note">Acá se cargan propuestas, mejoras, observaciones, decisiones y avances relacionados con esta tarea.</p>
         ${task.contributions.length ? task.contributions.map(a => `<div class="list-row"><div class="list-icon">✎</div><div class="list-main"><strong>${a.type} · ${a.author}</strong><small>${this.date(a.at)} · ${this.groupLabel(a.group)}</small><p>${a.text}</p></div></div>`).join("") : `<p>No hay aportes cargados.</p>`}
-        ${this.user.role !== "OPERADOR" ? `<div class="action-row"><button class="btn btn-primary" data-action="add-contribution">Agregar aporte o mejora</button></div>` : ""}
+        ${this.canManage() ? `<div class="action-row"><button class="btn btn-primary" data-action="add-contribution">Agregar aporte o mejora</button></div>` : ""}
       </section>`;
     if (this.taskTab === "pending") return `
       <section class="panel"><h3>Pendientes</h3>
         <p class="panel-note">Cada pendiente se puede editar, completar, reabrir o eliminar.</p>
-        ${task.pending.length ? task.pending.map(p => `<div class="list-row"><div class="list-icon">${p.status==="COMPLETADO"?"✓":"!"}</div><div class="list-main"><strong>${p.description}</strong><small>${p.responsible} · ${p.status === "COMPLETADO" ? "Completado" : "Abierto"}</small></div>${this.user.role !== "OPERADOR" ? `<div class="list-actions"><button class="mini-btn" data-action="toggle-pending" data-pending-id="${p.id}">${p.status === "COMPLETADO" ? "Reabrir" : "Completar"}</button><button class="mini-btn" data-action="edit-pending" data-pending-id="${p.id}">Editar</button>${this.isAdministrator() ? `<button class="mini-btn danger" data-action="delete-pending" data-pending-id="${p.id}">Eliminar</button>` : ""}</div>` : ""}</div>`).join("") : `<p>No hay pendientes.</p>`}
-        ${this.user.role !== "OPERADOR" ? `<div class="action-row"><button class="btn btn-primary" data-action="add-pending">Agregar pendiente</button></div>` : ""}
+        ${task.pending.length ? task.pending.map(p => `<div class="list-row"><div class="list-icon">${p.status==="COMPLETADO"?"✓":"!"}</div><div class="list-main"><strong>${p.description}</strong><small>${p.responsible} · ${p.status === "COMPLETADO" ? "Completado" : "Abierto"}</small></div>${this.canManage() ? `<div class="list-actions"><button class="mini-btn" data-action="toggle-pending" data-pending-id="${p.id}">${p.status === "COMPLETADO" ? "Reabrir" : "Completar"}</button><button class="mini-btn" data-action="edit-pending" data-pending-id="${p.id}">Editar</button>${this.canManage() ? `<button class="mini-btn danger" data-action="delete-pending" data-pending-id="${p.id}">Eliminar</button>` : ""}</div>` : ""}</div>`).join("") : `<p>No hay pendientes.</p>`}
+        ${this.canManage() ? `<div class="action-row"><button class="btn btn-primary" data-action="add-pending">Agregar pendiente</button></div>` : ""}
       </section>`;
     if (this.taskTab === "participants") return `<section class="panel">
       <div class="panel-title-row"><div><h3>Participantes generales</h3><p class="panel-note">Reciben seguimiento y minuta de la tarea general. Los ejecutores específicos se asignan dentro de cada tarea por sector.</p></div>${this.canManage() ? `<button class="panel-edit-btn" data-action="add-participant">＋ Agregar participante</button>` : ""}</div>
@@ -710,10 +884,10 @@ const app = {
       this.taskTab = b.dataset.tab; await this.render();
     }));
     document.querySelectorAll("[data-tab-jump]").forEach(b => b.addEventListener("click", async () => { this.taskTab=b.dataset.tabJump; await this.render(); }));
-    document.querySelectorAll('[data-action="new-task"]').forEach(b => b.addEventListener("click", () => this.go("newTask")));
-    document.querySelectorAll('[data-action="open-documents"]').forEach(b => b.addEventListener("click", () => this.toast("Abrí SharePoint o OneDrive para administrar los documentos.")));
+    document.querySelectorAll('[data-action="new-task"]').forEach(b => b.addEventListener("click", () => this.startNewTask()));
+    document.querySelectorAll('[data-action="open-documents"]').forEach(b => b.addEventListener("click", () => this.toast("Abrí OneDrive desde el teléfono o la computadora para administrar los documentos.")));
     document.querySelectorAll('[data-action="choose-master-file"]').forEach(b => b.addEventListener("click", () => this.runFileOperation(async () => {
-      if (this.fileSync.hasPendingSubmission()) {
+      if (window.MeeNative?.pendingSubmissionInfo?.()?.hasPending) {
         throw new Error("Existe una sincronización pendiente. Confirmala antes de elegir otro archivo maestro.");
       }
       const sync = await this.adapter.getSyncInfo();
@@ -745,11 +919,6 @@ const app = {
       if (!["submissionPrepared", "pendingExists"].includes(result.mode)) {
         return "No se pudo preparar el envío seguro.";
       }
-      if (!this.fileSync.isAndroidApp()) {
-        await this.fileSync.sharePendingSubmission("outlook");
-        await this.render();
-        return "El submission quedó descargado o compartido. Adjuntalo en Outlook y enviá el correo.";
-      }
       const email = this.ensureSyncDestinationEmail();
       if (email === null) {
         return "El envío quedó preparado localmente. Configurá el correo y reenviá cuando quieras.";
@@ -762,10 +931,6 @@ const app = {
     })));
 
     document.querySelectorAll('[data-action="share-pending-outlook"]').forEach(b => b.addEventListener("click", () => this.runFileOperation(async () => {
-      if (!this.fileSync.isAndroidApp()) {
-        await this.fileSync.sharePendingSubmission("outlook");
-        return "Se descargó o compartió el mismo submission pendiente. Adjuntalo en Outlook.";
-      }
       const email = this.ensureSyncDestinationEmail();
       if (email === null) return "El envío sigue pendiente. No se abrió Outlook.";
       await this.fileSync.sharePendingSubmission("outlook");
@@ -793,17 +958,27 @@ const app = {
       return (result.detail || "Power Automate todavía no confirmó este envío.") + diag;
     };
 
+    document.querySelectorAll('[data-action="refresh-sync-state"]').forEach(b => b.addEventListener("click", () => {
+      this.refreshSyncState({ silent: false });
+    }));
+
     document.querySelectorAll('[data-action="confirm-sync"]').forEach(b => b.addEventListener("click", () => {
-      if (!this.fileSync.isAndroidApp()) { document.querySelector("#file-confirm-input").click(); return; }
+      if (!this.fileSync.isAndroidApp()) {
+        document.querySelector("#file-confirm-input").click();
+        return;
+      }
       this.runFileOperation(async () => {
-      const result = await this.fileSync.confirmPendingSync();
-      await this.render();
-      return describeConfirmResult(result);
-    });
+        const result = await this.fileSync.confirmPendingSync();
+        await this.render();
+        return describeConfirmResult(result);
+      });
     }));
 
     document.querySelectorAll('[data-action="confirm-sync-picked"]').forEach(b => b.addEventListener("click", () => {
-      if (!this.fileSync.isAndroidApp()) { document.querySelector("#file-confirm-input").click(); return; }
+      if (!this.fileSync.isAndroidApp()) {
+        document.querySelector("#file-confirm-input").click();
+        return;
+      }
       this.runFileOperation(async () => {
         const result = await this.fileSync.confirmPendingSyncWithPickedFile();
         await this.render();
@@ -836,7 +1011,9 @@ const app = {
         this.toast("Correo inválido.");
         return;
       }
-      this.toast("Correo de sincronización guardado en este navegador.");
+      this.toast(this.fileSync.isAndroidApp()
+        ? "Correo de sincronización guardado."
+        : "Correo de sincronización guardado en este navegador.");
       await this.render();
     }));
 
@@ -893,6 +1070,54 @@ const app = {
     document.querySelectorAll('[data-action="toggle-pending"]').forEach(b => b.addEventListener("click", () => this.togglePendingStatus(b.dataset.pendingId))); 
     document.querySelectorAll('[data-action="close-task"]').forEach(b => b.addEventListener("click", () => this.promptClose()));
     document.querySelectorAll('[data-action="minute"]').forEach(b => b.addEventListener("click", () => this.previewMinute()));
+    document.querySelectorAll('[data-action="save-quick-note"]').forEach(b => b.addEventListener("click", async () => {
+      try {
+        this.notes.createFromDraft(this.user);
+        this.toast("Apunte guardado.");
+        await this.render();
+      } catch (error) {
+        this.toast(error.message || String(error));
+      }
+    }));
+    document.querySelectorAll('[data-action="clear-note-draft"]').forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("¿Limpiar el borrador actual?")) return;
+      this.notes.clearDraft(this.user);
+      await this.render();
+    }));
+    document.querySelectorAll('[data-action="edit-note"]').forEach(b => b.addEventListener("click", () => this.promptEditNote(b.dataset.noteId)));
+    document.querySelectorAll('[data-action="delete-note"]').forEach(b => b.addEventListener("click", () => this.promptDeleteNote(b.dataset.noteId)));
+    document.querySelectorAll('[data-action="reopen-note"]').forEach(b => b.addEventListener("click", async () => {
+      this.notes.reopen(this.user, b.dataset.noteId);
+      this.toast("Apunte vuelto a pendiente.");
+      await this.render();
+    }));
+    document.querySelectorAll('[data-action="create-task-from-note"]').forEach(b => b.addEventListener("click", () => this.startTaskFromNote(b.dataset.noteId)));
+    document.querySelectorAll('[data-action="load-note-into-task"]').forEach(b => b.addEventListener("click", () => this.loadSelectedNoteIntoTask()));
+
+    const quickDraft = document.querySelector("#quick-note-draft");
+    if (quickDraft) {
+      quickDraft.addEventListener("input", event => {
+        clearTimeout(this.noteDraftTimer);
+        const status = document.querySelector("#note-autosave-status");
+        if (status) status.textContent = "Guardando…";
+        this.noteDraftTimer = setTimeout(() => {
+          const draft = this.notes.saveDraft(this.user, event.target.value);
+          const label = document.querySelector("#note-autosave-status");
+          if (label) label.textContent = `Guardado automáticamente ${this.date(draft.updatedAt)}`;
+        }, 250);
+      });
+    }
+
+    const noteSource = document.querySelector("#note-source-select");
+    if (noteSource) {
+      noteSource.addEventListener("change", event => {
+        this.selectedNoteIdForTask = event.target.value || "";
+        const note = this.selectedNoteIdForTask ? this.notes.get(this.user, this.selectedNoteIdForTask) : null;
+        const preview = document.querySelector("#note-source-preview");
+        if (preview) preview.textContent = note?.text || "Seleccioná un apunte para ver el contenido.";
+      });
+    }
+
     document.querySelectorAll('[data-action="reset-demo"]').forEach(b => b.addEventListener("click", async () => {
       if (!confirm("Esto eliminará los datos locales de esta PC y restaurará la base inicial. ¿Continuar?")) return;
       await this.adapter.resetDemo();
@@ -907,6 +1132,10 @@ const app = {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(form));
       const task = await this.adapter.createTask(d);
+      if (d.sourceNoteId) {
+        this.notes.markConverted(this.user, d.sourceNoteId, task.code);
+      }
+      this.selectedNoteIdForTask = "";
       this.toast(`Tarea ${task.code} creada.`);
       this.selectedTask = task;
       this.route = "tasks";
@@ -922,6 +1151,97 @@ const app = {
         this.selectedTask = await this.adapter.getTask(el.dataset.task); this.taskTab="summary"; await this.render();
       }));
     });
+  },
+
+  startNewTask() {
+    if (!this.canManage()) {
+      this.toast("El rol Operador es de solo lectura.");
+      return;
+    }
+    this.selectedNoteIdForTask = "";
+    this.go("newTask");
+  },
+
+  startTaskFromNote(noteId) {
+    if (!this.canManage()) {
+      this.toast("El rol Operador es de solo lectura.");
+      return;
+    }
+    const note = this.notes.get(this.user, noteId);
+    if (!note || note.status === "CONVERTIDO") {
+      this.toast("El apunte ya no está disponible.");
+      return;
+    }
+    this.selectedNoteIdForTask = noteId;
+    this.go("newTask");
+  },
+
+  loadSelectedNoteIntoTask() {
+    const select = document.querySelector("#note-source-select");
+    const noteId = select?.value || "";
+    if (!noteId) {
+      this.toast("Elegí un apunte.");
+      return;
+    }
+
+    const note = this.notes.get(this.user, noteId);
+    if (!note) {
+      this.toast("Apunte no encontrado.");
+      return;
+    }
+
+    const problem = document.querySelector('#new-task-form textarea[name="problem"]');
+    if (!problem) return;
+
+    const current = problem.value.trim();
+    if (!current) {
+      problem.value = note.text;
+    } else if (!current.includes(note.text)) {
+      problem.value = `${current}\n\n${note.text}`;
+    }
+
+    this.selectedNoteIdForTask = noteId;
+    problem.focus();
+    this.toast("Apunte cargado en la tarea.");
+  },
+
+  promptEditNote(noteId) {
+    if (!this.canManage()) return;
+    const note = this.notes.get(this.user, noteId);
+    if (!note) return;
+
+    this.openModal(`<h3>Editar apunte</h3>
+      <div class="field"><label>Texto</label><textarea id="modal-note-text">${this.escapeHtml(note.text)}</textarea></div>
+      <button id="modal-save" type="button" class="btn btn-primary btn-full">Guardar cambios</button>`);
+
+    document.querySelector("#modal-save").onclick = async () => {
+      try {
+        this.notes.update(this.user, noteId, document.querySelector("#modal-note-text").value);
+        document.querySelector("#modal").close();
+        this.toast("Apunte actualizado.");
+        await this.render();
+      } catch (error) {
+        this.toast(error.message || String(error));
+      }
+    };
+  },
+
+  promptDeleteNote(noteId) {
+    if (!this.canManage()) return;
+    const note = this.notes.get(this.user, noteId);
+    if (!note) return;
+
+    this.openModal(`<h3>Eliminar apunte</h3>
+      <div class="warning">Se eliminará este apunte guardado únicamente en este dispositivo.</div>
+      <div class="panel" style="margin-top:12px"><p>${this.escapeHtml(note.text)}</p></div>
+      <button id="modal-save" type="button" class="btn btn-danger btn-full">Eliminar apunte</button>`);
+
+    document.querySelector("#modal-save").onclick = async () => {
+      this.notes.remove(this.user, noteId);
+      document.querySelector("#modal").close();
+      this.toast("Apunte eliminado.");
+      await this.render();
+    };
   },
 
   peopleOptions(selectedEmail="", excludeEmails=[], preferredGroup="") {
@@ -1074,7 +1394,7 @@ const app = {
   },
 
   promptDeleteTask() {
-    if (!this.isAdministrator()) return;
+    if (!this.canManage()) return;
     const task = this.selectedTask;
     this.openModal(`<h3>Eliminar tarea completa</h3><div class="warning">Esta acción eliminará definitivamente la tarea <strong>${this.escapeHtml(task.code)} — ${this.escapeHtml(task.title)}</strong>, incluyendo pendientes, aportes, participantes, acciones por sector e historial.</div><button id="modal-save" type="button" class="btn btn-danger btn-full">Eliminar tarea definitivamente</button>`);
     document.querySelector("#modal-save").onclick = async () => {
@@ -1121,4 +1441,5 @@ const app = {
   }
 };
 
+window.addEventListener("mee-native-resume", () => app.handleNativeResume());
 app.init();

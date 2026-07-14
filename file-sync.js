@@ -203,7 +203,7 @@ class FileSyncManager {
   }
 
   native() { return window.MeeNative && window.MeeNative.isNative() ? window.MeeNative : null; }
-  isAndroidApp() { return !!this.native() || /Android/i.test(navigator.userAgent || ""); }
+  isAndroidApp() { return !!this.native(); }
   webPendingInfo() {
     try { return JSON.parse(localStorage.getItem(this.webPendingKey) || "null"); }
     catch (_) { return null; }
@@ -216,7 +216,9 @@ class FileSyncManager {
   clearWebPending() { localStorage.removeItem(this.webPendingKey); }
   getSyncDestinationEmail() {
     const nat = this.native();
-    return nat ? (nat.getSyncDestinationEmail?.() || "") : (localStorage.getItem(this.webEmailKey) || this.config.syncDestinationEmail || "");
+    return nat
+      ? (nat.getSyncDestinationEmail?.() || this.config.syncDestinationEmail || "")
+      : (localStorage.getItem(this.webEmailKey) || this.config.syncDestinationEmail || "");
   }
   setSyncDestinationEmail(value) {
     const email = String(value || "").trim();
@@ -309,7 +311,7 @@ class FileSyncManager {
         await navigator.share({ title, text, files: [file] });
         return { shared: true, fileName };
       } catch (error) {
-        console.warn("No se pudo compartir; se descargara el archivo.", error);
+        console.warn("No se pudo compartir; se descargará el archivo.", error);
       }
     }
     this.download(blob, fileName, blob.type || "application/octet-stream");
@@ -361,6 +363,29 @@ class FileSyncManager {
 
     const result = await nat.confirmPendingSubmission();
     return this.finishConfirmation(nat, result);
+  }
+
+  async refreshPendingState(options = {}) {
+    if (!this.native()) {
+      return {
+        confirmed: false,
+        status: "select_file",
+        detail: "Seleccioná el maestro actualizado descargado de SharePoint."
+      };
+    }
+    const attempts = Math.max(1, Number(options.attempts || 1));
+    const delayMs = Math.max(0, Number(options.delayMs || 0));
+    let lastResult = { confirmed: false, status: "none", detail: "No hay un envío pendiente." };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      lastResult = await this.confirmPendingSync();
+      if (lastResult.confirmed || ["none", "conflict", "missingMaster", "remoteInvalid"].includes(lastResult.status)) {
+        return lastResult;
+      }
+      if (attempt < attempts - 1 && delayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+    return lastResult;
   }
 
   /**
@@ -448,7 +473,7 @@ class FileSyncManager {
 
     const pending = nat.pendingSubmissionInfo?.() || null;
     if (pending?.hasPending) {
-      const confirmation = await this.confirmPendingSync();
+      const confirmation = await this.refreshPendingState({ attempts: 2, delayMs: 1500 });
       if (confirmation.confirmed) {
         return { linkedFile: nat.masterInfo()?.fileName || "MEE_DATOS_COMITE_MASTER.json", confirmedSubmission: true, ...confirmation };
       }
