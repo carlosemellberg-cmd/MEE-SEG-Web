@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
   appName: "Comité de Seguridad MEE",
-  version: "1.10.1-WEB-GITHUB-PAGES",
+  version: "1.10.2-WEB-GITHUB-PAGES",
   connectionMode: "file",
   platform: "web",
   publicMode: true,

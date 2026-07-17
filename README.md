@@ -6,8 +6,8 @@ Versión web pública del Comité de Seguridad MEE. El repositorio contiene úni
 
 - Apuntes rápidos locales con guardado automático.
 - Opción **Traer desde apunte** dentro de Nueva tarea.
-- Administrador, supervisor, coordinador, líder y jefe pueden crear, modificar y eliminar.
-- Operadores, integrantes y analistas no administradores quedan en modo solo lectura.
+- Administrador, supervisor, coordinador, líder, jefe y analista pueden crear, modificar y eliminar.
+- Operadores e integrantes quedan en modo solo lectura.
 - Botón **Actualizar estado** para seleccionar el maestro actualizado y confirmar el ACK sin salir del centro de archivos.
 - Correo de Power Automate configurado de forma predeterminada.
 - Corrección para que Chrome en una tablet Android sea tratado como navegador web y no como APK.

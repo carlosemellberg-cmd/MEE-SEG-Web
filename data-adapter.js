@@ -187,10 +187,31 @@ class DataAdapter {
   }
 
   roleForPerson(person) {
-    const cargo = String(person?.cargo || "").toLowerCase();
-    if (cargo.includes("administrador")) return { role: "ADMINISTRADOR", roleLabel: "Administrador" };
-    if (["supervisor", "coordinador", "líder", "lider", "jefe"].some(value => cargo.includes(value))) {
-      return { role: "JEFE", roleLabel: "Jefe" };
+    const normalize = value => String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    const email = normalize(person?.email);
+    const cargo = normalize(person?.cargo);
+    const name = normalize(person?.name);
+    const authorizedPeople = [
+      ["adrian", "espeche"],
+      ["esteban", "cajal"],
+      ["javier", "dos", "santos"],
+      ["cesar", "campos"],
+      ["diego", "conde"],
+      ["alejandro", "dos", "santos"],
+      ["jorge", "alvarez"],
+      ["daniel", "arevalo"]
+    ];
+    const authorizedByName = authorizedPeople.some(tokens => tokens.every(token => name.includes(token)));
+    if (email === "cemellberg@lomanegra.com" || cargo.includes("administrador")) {
+      return { role: "ADMINISTRADOR", roleLabel: "Administrador" };
+    }
+    if (["supervisor", "coordinador", "lider", "jefe", "analista"].some(value => cargo.includes(value)) || authorizedByName) {
+      return { role: "JEFE", roleLabel: "Gestor" };
     }
     return { role: "OPERADOR", roleLabel: "Operador" };
   }

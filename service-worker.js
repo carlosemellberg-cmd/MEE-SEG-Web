@@ -1,4 +1,4 @@
-const CACHE = "mee-seg-web-v1.10.1-layout2";
+const CACHE = "mee-seg-web-v1.10.2-permissions";
 const ASSETS = [
   "./",
   "./index.html",
